@@ -73,6 +73,41 @@ public class Smoke extends Instrumentation {
           a.start == 31 && a.cursor == 90,
           "Frame step did not independently adjust selected start");
       screenshot("trim.png");
+      runOnMainSync(
+          () -> {
+            a.beginScrub();
+            a.move(120);
+          });
+      Thread.sleep(500);
+      check(
+          a.scrubbing && a.preview.getVisibility() == android.view.View.INVISIBLE,
+          "Scrubbing did not use video player");
+      runOnMainSync(a::endScrub);
+      waitFor(() -> a.displayIndex == 120);
+      runOnMainSync(
+          () -> {
+            a.muteButton.performClick();
+            check(a.player.getVolume() == 0f, "Playback mute failed");
+            a.muteButton.performClick();
+            check(a.player.getVolume() == 1f, "Playback unmute failed");
+            a.togglePlay();
+          });
+      Thread.sleep(1500);
+      runOnMainSync(
+          () -> {
+            check(a.player.getCurrentPosition() > 0, "Playback did not advance");
+            a.pause();
+            a.cursor = a.video.times.length - 1;
+            a.reachedEnd = true;
+            a.togglePlay();
+            check(a.cursor == 0, "Play at end did not restart");
+            a.pause();
+          });
+      Bundle progress = new Bundle();
+      progress.putString(
+          "checkpoint",
+          "Player scrubbing, mute, playback, replay and independent trim checks passed");
+      sendStatus(1, progress);
       runOnMainSync(() -> a.settings());
       waitForIdleSync();
       screenshot("settings.png");
@@ -80,8 +115,8 @@ public class Smoke extends Instrumentation {
       check(a.video == null && !a.editing, "Close video did not release editor");
       result.putString(
           "result",
-          "PASS: open, preview, seeking, independent trim handles, frame stepping, settings and"
-              + " close");
+          "PASS: open, video scrubbing, mute, playback, replay, independent trim, stepping,"
+              + " settings and close");
       finish(Activity.RESULT_OK, result);
     } catch (Throwable e) {
       result.putString("error", android.util.Log.getStackTraceString(e));

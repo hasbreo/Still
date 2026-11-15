@@ -14,7 +14,7 @@ public class AccessActivity extends Activity {
     Button done =
         Ui.button(
             this,
-            "‹  Return to Still",
+            "‹  Return to Freeze",
             () -> {
               CookieManager.getInstance().flush();
               finish();

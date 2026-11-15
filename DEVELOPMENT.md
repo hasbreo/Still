@@ -14,13 +14,13 @@ gradle :app:assembleRelease :app:lintRelease
 
 ## Distribution
 
-APK page: https://hasbreo.com/still
+APK page: https://hasbreo.com/freeze
 Update manifest: https://hasbreo.com/still/update.json
 
 Manifest shape:
 
 ```json
-{"schemaVersion":1,"app":"Still","available":true,"latest":{"versionCode":2,"versionName":"0.2.0","url":"https://hasbreo.com/still/Still-0.2.0.apk","sha256":"lowercase hexadecimal SHA256","notes":"Release notes"}}
+{"schemaVersion":1,"app":"Freeze","available":true,"latest":{"versionCode":3,"versionName":"0.3.0","url":"https://hasbreo.com/freeze/Freeze-0.3.0.apk","sha256":"lowercase hexadecimal SHA256","notes":"Release notes"}}
 ```
 
 The updater accepts only HTTPS hasbreo.com download URLs, verifies SHA256, application ID, a newer version code, and matching APK signing certificates. Android still requires the user to approve installation. Update the hardcoded installed-version checks when bumping the version (replace with BuildConfig in a later cleanup).
@@ -41,3 +41,6 @@ Replacement requires a checksum match. Transcoded shared files will not match. L
 
 ### Automated device smoke test
 Run `bash scripts/generate-test-media.sh` (requires FFmpeg) first. Then `gradle :app:assembleDebug :app:assembleDebugAndroidTest` builds the target and the built-in instrumentation runner. Install both APKs, then run `adb shell am instrument -w com.hasbreo.still.test/com.hasbreo.still.Smoke`. The test opens synthetic portrait footage and checks preview, independent playhead/trim movement, one-frame stepping and Close Video. Screenshots are written to the debug app's files/qa directory. These synthetic tests do not cover the user's Immich authentication or original media.
+
+### Freeze 0.3.0 playback path
+Media3 ExoPlayer 1.9.3 and a TextureView render continuous playback and scrubbing. Scrubbing uses ExoPlayer’s dedicated scrubbing mode; exact frame previews/exports use the separate extractor after drag release or explicit frame steps. Frame extraction is suspended during playback and scrubbing. Playback mute changes ExoPlayer volume only and is not passed to Transformer. Phone-copy saving is the normal backup path; direct server upload is reserved for replacing a matched original. Closing the editor prompts before discarding the selection.

@@ -1,8 +1,8 @@
-# Still
+# Freeze
 
 Android app for extracting video frames and precise trimming, designed as a companion to Immich.
 
-Status: initial Android implementation, version 0.2.0. See DEVELOPMENT.md for build steps and validation limits.
+Status: initial Android implementation, version 0.3.0. See DEVELOPMENT.md for build steps and validation limits.
 
 ## Agreed experience
 - Native Android app, dark emerald/mint interface, optimised for portrait and landscape videos.
@@ -23,7 +23,7 @@ Status: initial Android implementation, version 0.2.0. See DEVELOPMENT.md for bu
 - Preserve timezone/subsecond timestamps where available. Never substitute export time silently when original capture time is unavailable.
 
 ## Distribution
-- APK download page: https://hasbreo.com/still
+- APK download page: https://hasbreo.com/freeze
 - GitHub: https://github.com/hasbreo/Still
 - Future update checks and APK downloads use hasbreo.com.
 - Include automatic update checking, a manual Check for updates button, installed version and release notes.
@@ -53,3 +53,13 @@ Frame extraction, precise trimming, nearby sharpness suggestions, Immich save in
 - JPEG quality, PNG export and hold response settings.
 
 Physical-phone playback performance and live server authentication still require validation on the target device. Do not interpret successful compile/lint checks as full metadata-integration testing.
+
+## Version 0.3.0 — Freeze
+- Renamed the app; Android application ID, existing backup folders and signing identity are retained for updates.
+- ExoPlayer performs playback and live video scrubbing. Exact frame extraction remains for single-frame adjustments and export. Preview extraction is suspended while playback/scrubbing is active.
+- Save as copy uses the phone gallery; Immich uploads follow the user’s enabled backup folders. Original replacement remains a separate operation.
+- Crop choices only appear when zoomed in.
+- Centered geometric transport icons and playback-only mute. Exported audio is retained.
+- Play at the end restarts the video.
+- Inset timeline with labeled Start/End handles and a distinct white playhead.
+- Closing the editor prompts to discard unsaved edits.

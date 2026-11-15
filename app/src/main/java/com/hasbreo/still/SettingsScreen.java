@@ -95,7 +95,7 @@ final class SettingsScreen {
                     a,
                     "Why connect?",
                     "Local frame capture and trimming work without a connection.\n\n"
-                        + "An Immich API key lets Still identify the original video, preserve its"
+                        + "An Immich API key lets Freeze identify the original video, preserve its"
                         + " albums and supported metadata, upload a copy and move the original to"
                         + " trash when replacing it.\n\n"
                         + "Create a key in Immich’s Account settings → API keys. It needs asset"
@@ -235,7 +235,7 @@ final class SettingsScreen {
     auto.setChecked(a.prefs.getBoolean("auto", true));
     auto.setOnCheckedChangeListener((v, yes) -> a.prefs.edit().putBoolean("auto", yes).apply());
     updates.addView(auto);
-    TextView version = text("Installed version  0.2.0", 13, Ui.MUTED);
+    TextView version = text("Installed version  0.3.0", 13, Ui.MUTED);
     version.setPadding(0, Ui.dp(a, 14), 0, Ui.dp(a, 10));
     updates.addView(version);
     updates.addView(

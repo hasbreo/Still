@@ -11,7 +11,9 @@ import android.view.*;
 import android.widget.*;
 import androidx.exifinterface.media.ExifInterface;
 import androidx.media3.common.*;
+import androidx.media3.exoplayer.*;
 import androidx.media3.transformer.*;
+import androidx.media3.ui.PlayerView;
 import java.io.*;
 import java.time.*;
 import java.time.format.*;
@@ -33,10 +35,15 @@ public class MainActivity extends Activity {
   android.content.SharedPreferences prefs;
   LinearLayout root, controls;
   ZoomView preview;
-  VideoView player;
+  ExoPlayer player;
+  PlayerView playerView;
+  IconButton muteButton;
+  boolean muted = false, scrubbing = false, reachedEnd = false;
+  Runnable seekRequest;
   FrameLayout stage;
   TextView clock, status;
-  Button startButton, endButton, saveButton, playButton;
+  Button startButton, endButton, saveButton;
+  IconButton playButton;
   SeekBar seek;
   Timeline timeline;
   Frames video;
@@ -121,12 +128,12 @@ public class MainActivity extends Activity {
         button(
             editing ? "×" : "◉",
             () -> {
-              if (editing) closeVideo();
+              if (editing) requestCloseVideo();
             });
     close.setTextSize(25);
     Ui.surface(close, BG, 16, 0);
     bar.addView(close, new LinearLayout.LayoutParams(dp(42), dp(46)));
-    TextView name = label("Still", 23);
+    TextView name = label("Freeze", 23);
     name.setTypeface(null, android.graphics.Typeface.BOLD);
     bar.addView(name, new LinearLayout.LayoutParams(0, dp(54), 1));
     Button menu =
@@ -135,9 +142,9 @@ public class MainActivity extends Activity {
             () ->
                 Ui.options(
                     this,
-                    "Still",
+                    "Freeze",
                     new String[] {
-                      "Choose another video", "Settings", "Check for updates", "About Still"
+                      "Choose another video", "Settings", "Check for updates", "About Freeze"
                     },
                     which -> {
                       if (which == 0) choose();
@@ -145,7 +152,7 @@ public class MainActivity extends Activity {
                       if (which == 2) new Updater(this).check(true);
                       if (which == 3)
                         message(
-                            "Still 0.2.0",
+                            "Freeze 0.3.0",
                             "Frame capture and precise trimming. Processed on your phone. Made at"
                                 + " Hasbreo.");
                     }));
@@ -155,12 +162,31 @@ public class MainActivity extends Activity {
     root.addView(bar);
   }
 
+  void requestCloseVideo() {
+    if (busy) {
+      toast("Finish or cancel processing first");
+      return;
+    }
+    pause();
+    Ui.confirm(
+        this,
+        "Discard this edit?",
+        "Any unsaved trim or frame selection will be discarded. Saved copies stay in your gallery.",
+        "Discard & close",
+        this::closeVideo,
+        null);
+  }
+
   void closeVideo() {
     if (busy) {
       toast("Finish or cancel processing first");
       return;
     }
     pause();
+    if (player != null) {
+      player.release();
+      player = null;
+    }
     editing = false;
     renderToken++;
     Frames f = video;
@@ -209,7 +235,7 @@ public class MainActivity extends Activity {
     LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, dp(56));
     bp.setMargins(0, dp(30), 0, dp(14));
     centre.addView(choose, bp);
-    TextView hint = label("Or share a video from Immich into Still.", 14);
+    TextView hint = label("Or share a video from Immich into Freeze.", 14);
     hint.setTextColor(Ui.MUTED);
     centre.addView(hint);
     root.addView(centre, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -221,7 +247,7 @@ public class MainActivity extends Activity {
     detail.setTextColor(Ui.MUTED);
     card.addView(detail);
     root.addView(card);
-    TextView foot = label("HASBREO  ·  STILL 0.2.0", 11);
+    TextView foot = label("HASBREO  ·  FREEZE 0.3.0", 11);
     foot.setGravity(Gravity.CENTER);
     foot.setTextColor(Ui.MUTED);
     root.addView(foot);
@@ -314,9 +340,14 @@ public class MainActivity extends Activity {
     base();
     stage = new FrameLayout(this);
     preview = new ZoomView(this);
-    player = new VideoView(this);
+    if (player != null) player.release();
+    player = new ExoPlayer.Builder(this).build();
+    player.setSeekParameters(SeekParameters.EXACT);
+    player.setVolume(muted ? 0f : 1f);
+    playerView = (PlayerView) getLayoutInflater().inflate(R.layout.video_player, stage, false);
+    playerView.setPlayer(player);
     FrameLayout.LayoutParams vp = new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER);
-    stage.addView(player, vp);
+    stage.addView(playerView, vp);
     stage.addView(preview, new FrameLayout.LayoutParams(-1, -1));
     LinearLayout outer = root;
     LinearLayout layout = Ui.column(this);
@@ -338,15 +369,36 @@ public class MainActivity extends Activity {
       layout.addView(panel, new LinearLayout.LayoutParams(-1, -2));
     }
     root = panel;
-    player.setVideoPath(input.getPath());
-    player.setOnCompletionListener(mp -> pause());
+    player.setMediaItem(MediaItem.fromUri(Uri.fromFile(input)));
+    player.prepare();
+    player.seekTo(video.times[cursor] / 1000);
+    reachedEnd = false;
+    player.addListener(
+        new Player.Listener() {
+          public void onPlaybackStateChanged(int state) {
+            if (state == Player.STATE_ENDED) {
+              reachedEnd = true;
+              playing = false;
+              cursor = video.times.length - 1;
+              previewBoundary = false;
+              handler.removeCallbacks(ticker);
+              ((IconButton) playButton).icon("play");
+              refresh();
+            }
+          }
+
+          public void onPlayerError(PlaybackException error) {
+            playing = false;
+            toast("Playback: " + error.getMessage());
+          }
+        });
     clock = label("", 12);
     clock.setGravity(Gravity.CENTER);
     clock.setTextColor(Ui.MUTED);
     root.addView(clock, new LinearLayout.LayoutParams(-1, dp(28)));
     timeline = new Timeline(this);
-    LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, dp(44));
-    tp.setMargins(dp(5), dp(4), dp(5), dp(4));
+    LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, dp(72));
+    tp.setMargins(dp(20), dp(4), dp(20), dp(4));
     root.addView(timeline, tp);
     seek = new SeekBar(this);
     seek.setMax(video.times.length - 1);
@@ -356,12 +408,12 @@ public class MainActivity extends Activity {
     seek.setOnSeekBarChangeListener(
         new SeekBar.OnSeekBarChangeListener() {
           public void onStartTrackingTouch(SeekBar v) {
-            pause();
+            beginScrub();
             previewBoundary = false;
           }
 
           public void onStopTrackingTouch(SeekBar v) {
-            requestFrame();
+            endScrub();
           }
 
           public void onProgressChanged(SeekBar v, int p, boolean user) {
@@ -378,25 +430,38 @@ public class MainActivity extends Activity {
     ends.setVisibility(trim ? View.VISIBLE : View.GONE);
     LinearLayout row = new LinearLayout(this);
     row.setGravity(Gravity.CENTER);
-    Button prev = button("Ⅰ‹", () -> step(-1));
-    playButton = button("▶", this::togglePlay);
-    Button next = button("›Ⅰ", () -> step(1));
-    prev.setTextSize(23);
-    next.setTextSize(23);
-    playButton.setTextSize(22);
-    Ui.primary(playButton);
+    IconButton prev = new IconButton(this, "previous", false, () -> step(-1));
+    playButton = new IconButton(this, "play", true, this::togglePlay);
+    IconButton next = new IconButton(this, "next", false, () -> step(1));
+    muteButton =
+        new IconButton(
+            this,
+            muted ? "muted" : "sound",
+            false,
+            () -> {
+              muted = !muted;
+              if (player != null) player.setVolume(muted ? 0f : 1f);
+              muteButton.icon(muted ? "muted" : "sound");
+              muteButton.setContentDescription(muted ? "Unmute playback" : "Mute playback");
+            });
     prev.setContentDescription("Previous frame. Hold to repeat");
     next.setContentDescription("Next frame. Hold to repeat");
+    muteButton.setContentDescription(muted ? "Unmute playback" : "Mute playback");
     hold(prev, -1);
     hold(next, 1);
-    for (Button b : new Button[] {prev, playButton, next}) {
+    for (IconButton control : new IconButton[] {prev, playButton, next}) {
       LinearLayout.LayoutParams rp =
           new LinearLayout.LayoutParams(
-              dp(b == playButton ? 58 : 52), dp(b == playButton ? 58 : 48));
-      rp.setMargins(dp(16), dp(7), dp(16), dp(7));
-      row.addView(b, rp);
+              dp(control == playButton ? 58 : 48), dp(control == playButton ? 58 : 48));
+      rp.setMargins(dp(9), dp(7), dp(9), dp(7));
+      row.addView(control, rp);
     }
-    root.addView(row);
+    FrameLayout transport = new FrameLayout(this);
+    transport.addView(row, new FrameLayout.LayoutParams(-2, dp(76), Gravity.CENTER));
+    FrameLayout.LayoutParams muteLayout =
+        new FrameLayout.LayoutParams(dp(42), dp(42), Gravity.END | Gravity.CENTER_VERTICAL);
+    transport.addView(muteButton, muteLayout);
+    root.addView(transport, new LinearLayout.LayoutParams(-1, dp(76)));
     LinearLayout modes = new LinearLayout(this);
     Ui.surface(modes, Ui.CARD, 18, Ui.BORDER);
     Button capture =
@@ -513,7 +578,7 @@ public class MainActivity extends Activity {
     else move(cursor + d);
   }
 
-  void hold(Button b, int direction) {
+  void hold(IconButton b, int direction) {
     b.setOnTouchListener(
         (v, e) -> {
           switch (e.getActionMasked()) {
@@ -543,7 +608,12 @@ public class MainActivity extends Activity {
   }
 
   void requestFrame() {
-    if (video == null) return;
+    if (destroyed || video == null) return;
+    if (playing) return;
+    if (scrubbing) {
+      seekVideo();
+      return;
+    }
     requestedFrame = previewBoundary ? (endSelected ? end : start) : cursor;
     if (renderQueued) return;
     renderQueued = true;
@@ -571,11 +641,16 @@ public class MainActivity extends Activity {
                   renderQueued = false;
                   if (destroyed || f != video || !editing) {
                     if (image != null) image.recycle();
-                    if (video != null && editing) requestFrame();
+                    if (!destroyed && video != null && editing) requestFrame();
                     return;
                   }
                   if (image != null) {
+                    if (playing || scrubbing) {
+                      image.recycle();
+                      return;
+                    }
                     preview.setBitmap(image, false);
+                    preview.setVisibility(View.VISIBLE);
                     displayIndex = target;
                     refresh();
                   }
@@ -591,38 +666,96 @@ public class MainActivity extends Activity {
         });
   }
 
+  void releasePreviewDecoder() {
+    renders.execute(
+        () -> {
+          if (decoder != null) {
+            decoder.close();
+            decoder = null;
+            decoderSource = null;
+          }
+        });
+  }
+
+  void beginScrub() {
+    if (video == null || busy) return;
+    pause();
+    scrubbing = true;
+    releasePreviewDecoder();
+    previewBoundary = false;
+    player.setScrubbingModeEnabled(true);
+    preview.setVisibility(View.INVISIBLE);
+  }
+
+  void seekVideo() {
+    if (video == null || player == null) return;
+    if (seekRequest != null) handler.removeCallbacks(seekRequest);
+    seekRequest =
+        () -> {
+          if (player != null && video != null && !playing) {
+            int index = previewBoundary ? (endSelected ? end : start) : cursor;
+            player.seekTo(video.times[index] / 1000);
+          }
+        };
+    handler.postDelayed(seekRequest, 16);
+  }
+
+  void endScrub() {
+    if (!scrubbing) return;
+    scrubbing = false;
+    if (seekRequest != null) handler.removeCallbacks(seekRequest);
+    if (player != null) {
+      player.setScrubbingModeEnabled(false);
+      int index = previewBoundary ? (endSelected ? end : start) : cursor;
+      player.seekTo(video.times[index] / 1000);
+    }
+    requestFrame();
+  }
+
   void togglePlay() {
-    if (busy) return;
+    if (busy || video == null || player == null) return;
     if (playing) {
       pause();
       return;
     }
+    endScrub();
     previewBoundary = false;
-    playing = true;
+    if (reachedEnd
+        || player.getPlaybackState() == Player.STATE_ENDED
+        || cursor >= video.times.length - 1) {
+      cursor = 0;
+      reachedEnd = false;
+    }
+    player.setScrubbingModeEnabled(false);
+    player.seekTo(video.times[cursor] / 1000);
+    player.setVolume(muted ? 0f : 1f);
     preview.setVisibility(View.INVISIBLE);
-    player.seekTo((int) (video.times[cursor] / 1000));
-    player.start();
-    playButton.setText("Ⅱ");
+    playing = true;
+    releasePreviewDecoder();
+    ((IconButton) playButton).icon("pause");
+    player.play();
+    handler.removeCallbacks(ticker);
     handler.post(ticker);
   }
 
   final Runnable ticker =
       new Runnable() {
         public void run() {
-          if (!playing) return;
+          if (!playing || video == null || player == null) return;
           cursor = video.nearest(player.getCurrentPosition() * 1000L);
-          refresh();
-          handler.postDelayed(this, 100);
+          clock.setText(time(video.times[cursor]) + " / " + time(video.duration));
+          seek.setProgress(cursor);
+          if (timeline != null) timeline.invalidate();
+          handler.postDelayed(this, 50);
         }
       };
 
   void pause() {
-    if (playing && player != null) {
+    if (playing && player != null && video != null) {
       cursor = video.nearest(player.getCurrentPosition() * 1000L);
       player.pause();
       playing = false;
-      preview.setVisibility(View.VISIBLE);
-      playButton.setText("▶");
+      if (playButton instanceof IconButton) ((IconButton) playButton).icon("play");
       handler.removeCallbacks(ticker);
       requestFrame();
     }
@@ -692,6 +825,10 @@ public class MainActivity extends Activity {
 
   void frameOptions() {
     if (busy) return;
+    if (preview.zoom <= 1.001f) {
+      saveFrame(false);
+      return;
+    }
     Ui.options(
         this,
         "Save frame",
@@ -754,7 +891,7 @@ public class MainActivity extends Activity {
                   File f =
                       new File(
                           getCacheDir(),
-                          "Still-" + System.currentTimeMillis() + (png ? ".png" : ".jpg"));
+                          "Freeze-" + System.currentTimeMillis() + (png ? ".png" : ".jpg"));
                   try (OutputStream out = new FileOutputStream(f)) {
                     b.compress(
                         png ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG,
@@ -832,31 +969,23 @@ public class MainActivity extends Activity {
       return;
     }
     if (sourceId == null) {
-      Ui.options(
-          this,
-          "Save trimmed video",
-          new String[] {"Save copy to phone", "Connect to Immich  ⓘ"},
-          choice -> {
-            if (choice == 0) exportTrim(0);
-            else settings();
-          });
+      exportTrim(0);
       return;
     }
     Ui.options(
         this,
         "Save trimmed video",
-        new String[] {"Save copy to phone", "Save copy to Immich", "Replace original in Immich"},
+        new String[] {"Save as copy", "Replace original in Immich"},
         choice -> {
-          if (choice == 2)
+          if (choice == 0) exportTrim(0);
+          else
             Ui.confirm(
                 this,
                 "Replace original?",
-                "The original moves to Immich’s trash only after the new copy and supported"
-                    + " metadata are verified.",
+                "The new video is verified before the original moves to Immich’s trash.",
                 "Replace original",
                 () -> exportTrim(2),
                 null);
-          else exportTrim(choice);
         });
   }
 
@@ -864,9 +993,9 @@ public class MainActivity extends Activity {
     requireDate(
         () -> {
           busy = true;
-          showProgress("Trimming video… Keep Still open.");
+          showProgress("Trimming video… Keep Freeze open.");
           getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-          File out = new File(getCacheDir(), "Still-" + System.currentTimeMillis() + ".mp4");
+          File out = new File(getCacheDir(), "Freeze-" + System.currentTimeMillis() + ".mp4");
           long endUs = end + 1 < video.times.length ? video.times[end + 1] : video.duration;
           MediaItem item =
               new MediaItem.Builder()
@@ -1020,7 +1149,7 @@ public class MainActivity extends Activity {
       toast("Please wait for processing to finish");
       return;
     }
-    if (editing) closeVideo();
+    if (editing) requestCloseVideo();
     else super.onBackPressed();
   }
 
@@ -1042,6 +1171,10 @@ public class MainActivity extends Activity {
 
   protected void onDestroy() {
     destroyed = true;
+    if (player != null) {
+      player.release();
+      player = null;
+    }
     handler.removeCallbacksAndMessages(null);
     if (transformer != null) transformer.cancel();
     work.execute(
