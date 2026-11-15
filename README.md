@@ -2,7 +2,7 @@
 
 Android app for extracting video frames and precise trimming, designed as a companion to Immich.
 
-Status: planning and distribution setup. No APK released yet.
+Status: initial Android implementation, version 0.1.0. See DEVELOPMENT.md for build steps and validation limits.
 
 ## Agreed experience
 - Native Android app, dark emerald/mint interface, optimised for portrait and landscape videos.
