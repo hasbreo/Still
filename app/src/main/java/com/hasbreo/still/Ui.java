@@ -60,6 +60,9 @@ final class Ui {
   }
 
   static void selected(Button b, boolean selected) {
+    if (Boolean.valueOf(selected).equals(b.getTag())) return;
+    b.setTag(selected);
+    b.setSelected(selected);
     b.setTextColor(selected ? MINT : TEXT);
     b.setBackground(
         new RippleDrawable(

@@ -16,6 +16,10 @@ jobs:
         with:
           gradle-version: '8.10.2'
       - run: gradle :app:assembleDebug :app:lintDebug
+      - name: Seek scheduling regression
+        run: |
+          javac -d /tmp/freeze-tests app/src/main/java/com/hasbreo/still/ScrubScheduler.java tests/ScrubSchedulerTest.java
+          java -cp /tmp/freeze-tests com.hasbreo.still.ScrubSchedulerTest
       - uses: actions/upload-artifact@v4
         with:
           name: Still-debug

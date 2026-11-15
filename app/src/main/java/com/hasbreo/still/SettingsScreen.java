@@ -235,7 +235,7 @@ final class SettingsScreen {
     auto.setChecked(a.prefs.getBoolean("auto", true));
     auto.setOnCheckedChangeListener((v, yes) -> a.prefs.edit().putBoolean("auto", yes).apply());
     updates.addView(auto);
-    TextView version = text("Installed version  0.3.0", 13, Ui.MUTED);
+    TextView version = text("Installed version  0.3.1", 13, Ui.MUTED);
     version.setPadding(0, Ui.dp(a, 14), 0, Ui.dp(a, 10));
     updates.addView(version);
     updates.addView(

@@ -34,6 +34,41 @@ public class Smoke extends Instrumentation {
     b.recycle();
   }
 
+  void touch(int action, float x) {
+    android.view.MotionEvent event =
+        android.view.MotionEvent.obtain(
+            android.os.SystemClock.uptimeMillis(),
+            android.os.SystemClock.uptimeMillis(),
+            action,
+            x,
+            a.timeline.getHeight() / 2f,
+            0);
+    try {
+      a.timeline.onTouchEvent(event);
+    } finally {
+      event.recycle();
+    }
+  }
+
+  void dragBoundary(boolean end, int frame) throws Exception {
+    runOnMainSync(
+        () -> {
+          touch(android.view.MotionEvent.ACTION_DOWN, a.timeline.x(end ? a.end : a.start));
+          touch(android.view.MotionEvent.ACTION_MOVE, a.timeline.x(frame));
+          check(a.scrubbing, "Trim drag did not enable player scrubbing");
+          check(
+              a.preview.getVisibility() == android.view.View.INVISIBLE,
+              "Old bitmap covers live trim preview");
+        });
+    // Confirm the player actually renders the boundary position while the handle is held.
+    waitFor(() -> Math.abs(a.nativeFrameUs - a.video.times[frame]) < 100000);
+    runOnMainSync(() -> touch(android.view.MotionEvent.ACTION_UP, a.timeline.x(frame)));
+    waitFor(
+        () -> a.displayIndex == frame && a.preview.getVisibility() == android.view.View.VISIBLE);
+    Thread.sleep(300);
+    check(a.displayIndex == frame, "Stale decoder result replaced final boundary preview");
+  }
+
   public void onStart() {
     Bundle result = new Bundle();
     try {
@@ -73,12 +108,27 @@ public class Smoke extends Instrumentation {
           a.start == 31 && a.cursor == 90,
           "Frame step did not independently adjust selected start");
       screenshot("trim.png");
+      // Drive the actual timeline touch path, not just the boundary model method.
+      int unchangedCursor = a.cursor;
+      dragBoundary(false, 60);
+      check(
+          a.start == 60 && a.cursor == unchangedCursor && a.end == end,
+          "Dragging Start changed the wrong position");
+      dragBoundary(true, 180);
+      check(
+          a.end == 180 && a.cursor == unchangedCursor && a.start == 60,
+          "Dragging End changed the wrong position");
+      runOnMainSync(() -> a.selectBoundary(false));
+      waitFor(() -> a.displayIndex == 60 && a.preview.getVisibility() == android.view.View.VISIBLE);
+      runOnMainSync(() -> a.selectBoundary(true));
+      waitFor(
+          () -> a.displayIndex == 180 && a.preview.getVisibility() == android.view.View.VISIBLE);
       runOnMainSync(
           () -> {
             a.beginScrub();
             a.move(120);
           });
-      Thread.sleep(500);
+      waitFor(() -> Math.abs(a.nativeFrameUs - a.video.times[120]) < 100000);
       check(
           a.scrubbing && a.preview.getVisibility() == android.view.View.INVISIBLE,
           "Scrubbing did not use video player");

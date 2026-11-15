@@ -39,7 +39,10 @@ public class MainActivity extends Activity {
   PlayerView playerView;
   IconButton muteButton;
   boolean muted = false, scrubbing = false, reachedEnd = false;
-  Runnable seekRequest;
+  ScrubScheduler scrubSeeks;
+  Runnable settlePreview;
+  volatile int previewGeneration;
+  volatile long nativeFrameUs = -1;
   FrameLayout stage;
   TextView clock, status;
   Button startButton, endButton, saveButton;
@@ -152,7 +155,7 @@ public class MainActivity extends Activity {
                       if (which == 2) new Updater(this).check(true);
                       if (which == 3)
                         message(
-                            "Freeze 0.3.0",
+                            "Freeze 0.3.1",
                             "Frame capture and precise trimming. Processed on your phone. Made at"
                                 + " Hasbreo.");
                     }));
@@ -183,6 +186,8 @@ public class MainActivity extends Activity {
       return;
     }
     pause();
+    cancelPreviewWork();
+    scrubbing = false;
     if (player != null) {
       player.release();
       player = null;
@@ -247,7 +252,7 @@ public class MainActivity extends Activity {
     detail.setTextColor(Ui.MUTED);
     card.addView(detail);
     root.addView(card);
-    TextView foot = label("HASBREO  ·  FREEZE 0.3.0", 11);
+    TextView foot = label("HASBREO  ·  FREEZE 0.3.1", 11);
     foot.setGravity(Gravity.CENTER);
     foot.setTextColor(Ui.MUTED);
     root.addView(foot);
@@ -340,8 +345,29 @@ public class MainActivity extends Activity {
     base();
     stage = new FrameLayout(this);
     preview = new ZoomView(this);
+    cancelPreviewWork();
+    scrubbing = false;
     if (player != null) player.release();
     player = new ExoPlayer.Builder(this).build();
+    scrubSeeks =
+        new ScrubScheduler(
+            new ScrubScheduler.Queue() {
+              public void post(Runnable r, long delay) {
+                handler.postDelayed(r, delay);
+              }
+
+              public void remove(Runnable r) {
+                handler.removeCallbacks(r);
+              }
+            },
+            android.os.SystemClock::uptimeMillis,
+            frame -> {
+              if (player != null && video != null && !playing)
+                player.seekTo(video.times[frame] / 1000);
+            });
+    nativeFrameUs = -1;
+    player.setVideoFrameMetadataListener(
+        (pts, releaseNs, format, mediaFormat) -> nativeFrameUs = pts);
     player.setSeekParameters(SeekParameters.EXACT);
     player.setVolume(muted ? 0f : 1f);
     playerView = (PlayerView) getLayoutInflater().inflate(R.layout.video_player, stage, false);
@@ -376,7 +402,7 @@ public class MainActivity extends Activity {
     player.addListener(
         new Player.Listener() {
           public void onPlaybackStateChanged(int state) {
-            if (state == Player.STATE_ENDED) {
+            if (state == Player.STATE_ENDED && playing) {
               reachedEnd = true;
               playing = false;
               cursor = video.times.length - 1;
@@ -583,6 +609,9 @@ public class MainActivity extends Activity {
         (v, e) -> {
           switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+              beginScrub();
+              if (player != null)
+                player.setScrubbingModeParameters(ScrubbingModeParameters.DEFAULT);
               step(direction);
               final long began = System.currentTimeMillis();
               repeat =
@@ -599,6 +628,7 @@ public class MainActivity extends Activity {
             case MotionEvent.ACTION_CANCEL:
               if (repeat != null) handler.removeCallbacks(repeat);
               repeat = null;
+              endScrub();
               v.performClick();
               return true;
           }
@@ -607,66 +637,96 @@ public class MainActivity extends Activity {
     b.setOnClickListener(v -> {});
   }
 
+  int previewTarget() {
+    return previewBoundary ? (endSelected ? end : start) : cursor;
+  }
+
+  void cancelPreviewWork() {
+    previewGeneration++;
+    if (settlePreview != null) handler.removeCallbacks(settlePreview);
+    if (scrubSeeks != null) scrubSeeks.cancel();
+  }
+
   void requestFrame() {
-    if (destroyed || video == null) return;
-    if (playing) return;
+    if (destroyed || video == null || playing || player == null) return;
+    requestedFrame = previewTarget();
+    previewGeneration++;
+    if (settlePreview != null) handler.removeCallbacks(settlePreview);
+    // Always move the real video first, including Start/End selection and frame buttons.
+    preview.setVisibility(View.INVISIBLE);
     if (scrubbing) {
       seekVideo();
       return;
     }
-    requestedFrame = previewBoundary ? (endSelected ? end : start) : cursor;
-    if (renderQueued) return;
+    scrubSeeks.cancel();
+    player.setScrubbingModeEnabled(false);
+    player.setSeekParameters(SeekParameters.EXACT);
+    player.seekTo(video.times[requestedFrame] / 1000);
+    // Refine only after input settles. Never queue bitmap decoding for each pointer move.
+    settlePreview = this::renderStill;
+    handler.postDelayed(settlePreview, 100);
+  }
+
+  void renderStill() {
+    if (destroyed || video == null || playing || scrubbing || renderQueued) return;
     renderQueued = true;
     final Frames f = video;
-    final int target = requestedFrame;
+    final int target = previewTarget();
+    final int generation = previewGeneration;
     renders.execute(
         () -> {
+          Bitmap image = null;
+          Exception failure = null;
           try {
             if (decoderSource != f) {
               if (decoder != null) decoder.close();
               decoder = new PreviewDecoder(f, 960);
               decoderSource = f;
             }
-            Bitmap b;
             try {
-              b = decoder.get(target);
-            } catch (Exception fallback) {
-              decoder.close();
-              decoder = new PreviewDecoder(f, 960);
-              b = f.preview(target);
+              image = decoder.get(target, () -> destroyed || generation != previewGeneration);
+            } catch (Exception e) {
+              if (generation == previewGeneration && !destroyed) image = f.preview(target);
             }
-            final Bitmap image = b;
-            runOnUiThread(
-                () -> {
-                  renderQueued = false;
-                  if (destroyed || f != video || !editing) {
-                    if (image != null) image.recycle();
-                    if (!destroyed && video != null && editing) requestFrame();
-                    return;
-                  }
-                  if (image != null) {
-                    if (playing || scrubbing) {
-                      image.recycle();
-                      return;
-                    }
-                    preview.setBitmap(image, false);
-                    preview.setVisibility(View.VISIBLE);
-                    displayIndex = target;
-                    refresh();
-                  }
-                  if (target != requestedFrame) requestFrame();
-                });
           } catch (Exception e) {
-            runOnUiThread(
-                () -> {
-                  renderQueued = false;
-                  if (f == video && editing) toast("Could not decode this frame");
-                });
+            failure = e;
           }
+          final Bitmap result = image;
+          final Exception error = failure;
+          runOnUiThread(
+              () -> {
+                renderQueued = false;
+                if (destroyed || f != video || !editing) {
+                  if (result != null) result.recycle();
+                  if (!destroyed && video != null && editing && !playing && !scrubbing)
+                    renderStill();
+                  return;
+                }
+                if (generation != previewGeneration
+                    || playing
+                    || scrubbing
+                    || target != previewTarget()) {
+                  if (result != null) result.recycle();
+                  if (!playing && !scrubbing) {
+                    if (settlePreview != null) handler.removeCallbacks(settlePreview);
+                    settlePreview = this::renderStill;
+                    handler.postDelayed(settlePreview, 100);
+                  }
+                  return;
+                }
+                if (result != null) {
+                  preview.setBitmap(result, false);
+                  preview.setVisibility(View.VISIBLE);
+                  displayIndex = target;
+                  refresh();
+                } else if (error != null) toast("Could not decode this frame");
+              });
         });
   }
 
   void releasePreviewDecoder() {
+    previewGeneration++;
+    if (settlePreview != null) handler.removeCallbacks(settlePreview);
     renders.execute(
         () -> {
           if (decoder != null) {
@@ -678,37 +738,39 @@ public class MainActivity extends Activity {
   }
 
   void beginScrub() {
-    if (video == null || busy) return;
+    if (video == null || busy || player == null || scrubbing) return;
     pause();
+    cancelPreviewWork();
     scrubbing = true;
-    releasePreviewDecoder();
     previewBoundary = false;
+    // A small touch tolerance during motion; release always seeks to the exact frame.
+    double tolerance =
+        Math.min(
+            0.08,
+            video.duration
+                / 1000000.0
+                * 2.0
+                / Math.max(1, timeline.getWidth() / getResources().getDisplayMetrics().density));
+    double fraction = tolerance * 1000000.0 / Math.max(1, video.duration);
+    player.setScrubbingModeParameters(
+        ScrubbingModeParameters.DEFAULT
+            .buildUpon()
+            .setFractionalSeekTolerance(fraction, fraction)
+            .build());
     player.setScrubbingModeEnabled(true);
     preview.setVisibility(View.INVISIBLE);
   }
 
   void seekVideo() {
-    if (video == null || player == null) return;
-    if (seekRequest != null) handler.removeCallbacks(seekRequest);
-    seekRequest =
-        () -> {
-          if (player != null && video != null && !playing) {
-            int index = previewBoundary ? (endSelected ? end : start) : cursor;
-            player.seekTo(video.times[index] / 1000);
-          }
-        };
-    handler.postDelayed(seekRequest, 16);
+    if (video != null && player != null && scrubSeeks != null) scrubSeeks.submit(previewTarget());
   }
 
   void endScrub() {
     if (!scrubbing) return;
     scrubbing = false;
-    if (seekRequest != null) handler.removeCallbacks(seekRequest);
-    if (player != null) {
-      player.setScrubbingModeEnabled(false);
-      int index = previewBoundary ? (endSelected ? end : start) : cursor;
-      player.seekTo(video.times[index] / 1000);
-    }
+    scrubSeeks.cancel();
+    player.setScrubbingModeEnabled(false);
+    player.setSeekParameters(SeekParameters.EXACT);
     requestFrame();
   }
 
@@ -1171,6 +1233,7 @@ public class MainActivity extends Activity {
 
   protected void onDestroy() {
     destroyed = true;
+    cancelPreviewWork();
     if (player != null) {
       player.release();
       player = null;

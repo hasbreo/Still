@@ -9,6 +9,7 @@ final class Timeline extends View {
   final Paint p = new Paint(3);
   final Frames f;
   int drag = -1;
+  float dragOffset;
   boolean attached = true;
 
   Timeline(MainActivity activity) {
@@ -99,17 +100,21 @@ final class Timeline extends View {
     if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
       a.beginScrub();
       drag = -1;
+      dragOffset = 0;
       if (a.trim) {
         float ds = Math.abs(e.getX() - x(a.start)), de = Math.abs(e.getX() - x(a.end));
         float touch = Ui.dp(a, 25);
-        if (Math.min(ds, de) <= touch) drag = de < ds ? 1 : 0;
+        if (Math.min(ds, de) <= touch) {
+          drag = ds == de ? (a.endSelected ? 1 : 0) : (de < ds ? 1 : 0);
+          dragOffset = e.getX() - x(drag == 1 ? a.end : a.start);
+        }
       }
       getParent().requestDisallowInterceptTouchEvent(true);
     }
     if (e.getActionMasked() == 0 || e.getActionMasked() == 2) {
       int target =
           Math.round(
-              Math.max(0, Math.min(getWidth() - Ui.dp(a, 24), e.getX() - Ui.dp(a, 12)))
+              Math.max(0, Math.min(getWidth() - Ui.dp(a, 24), e.getX() - dragOffset - Ui.dp(a, 12)))
                   / (getWidth() - Ui.dp(a, 24))
                   * (f.times.length - 1));
       if (drag < 0) a.move(target);
@@ -119,6 +124,8 @@ final class Timeline extends View {
     if (e.getActionMasked() == MotionEvent.ACTION_UP
         || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
       a.endScrub();
+      getParent().requestDisallowInterceptTouchEvent(false);
+      drag = -1;
       performClick();
       return true;
     }
@@ -138,6 +145,7 @@ final class Timeline extends View {
   protected void onDetachedFromWindow() {
     super.onDetachedFromWindow();
     attached = false;
+    if (a.scrubbing) a.endScrub();
     for (Bitmap b : thumbs) if (b != null) b.recycle();
   }
 }

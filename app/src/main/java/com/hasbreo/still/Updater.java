@@ -33,8 +33,8 @@ final class Updater {
             }
             a.prefs.edit().putLong("checked", System.currentTimeMillis()).apply();
             JSONObject r = m.optJSONObject("latest");
-            if (!m.optBoolean("available") || r == null || r.optInt("versionCode") <= 3) {
-              if (visible) a.runOnUiThread(() -> a.toast("Freeze is up to date · 0.3.0"));
+            if (!m.optBoolean("available") || r == null || r.optInt("versionCode") <= 4) {
+              if (visible) a.runOnUiThread(() -> a.toast("Freeze is up to date · 0.3.1"));
               return;
             }
             a.runOnUiThread(

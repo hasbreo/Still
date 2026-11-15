@@ -2,7 +2,7 @@
 
 Android app for extracting video frames and precise trimming, designed as a companion to Immich.
 
-Status: initial Android implementation, version 0.3.0. See DEVELOPMENT.md for build steps and validation limits.
+Status: initial Android implementation, version 0.3.1. See DEVELOPMENT.md for build steps and validation limits.
 
 ## Agreed experience
 - Native Android app, dark emerald/mint interface, optimised for portrait and landscape videos.
@@ -63,3 +63,11 @@ Physical-phone playback performance and live server authentication still require
 - Play at the end restarts the video.
 - Inset timeline with labeled Start/End handles and a distinct white playhead.
 - Closing the editor prompts to discard unsaved edits.
+
+
+### Version 0.3.1
+
+- Seeks are throttled without postponing pending work, so high-refresh touch input cannot starve the preview.
+- Start/End dragging and selection, ordinary seeking, and held frame controls all move the native video player.
+- Exact still refinement waits until input settles. Obsolete decoder requests are cancelled and never cover the current preview.
+- Trim handles retain their grab offset and the playhead stays independent. A paused seek to the last frame does not invoke playback-end navigation.

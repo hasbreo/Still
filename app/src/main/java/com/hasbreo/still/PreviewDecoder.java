@@ -67,6 +67,11 @@ final class PreviewDecoder implements AutoCloseable {
   }
 
   Bitmap get(int frame) throws Exception {
+    return get(frame, () -> false);
+  }
+
+  Bitmap get(int frame, java.util.function.BooleanSupplier cancelled) throws Exception {
+    if (cancelled.getAsBoolean()) return null;
     Bitmap cached = cache.get(frame);
     if (cached != null && !cached.isRecycled()) return cached.copy(Bitmap.Config.ARGB_8888, false);
     if (codec == null) init();
@@ -79,6 +84,7 @@ final class PreviewDecoder implements AutoCloseable {
     }
     long deadline = System.currentTimeMillis() + 15000;
     while (System.currentTimeMillis() < deadline) {
+      if (cancelled.getAsBoolean()) return null;
       if (!ended) {
         int i = codec.dequeueInputBuffer(0);
         if (i >= 0) {
