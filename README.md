@@ -2,7 +2,7 @@
 
 Android app for extracting video frames and precise trimming, designed as a companion to Immich.
 
-Status: initial Android implementation, version 0.1.0. See DEVELOPMENT.md for build steps and validation limits.
+Status: initial Android implementation, version 0.2.0. See DEVELOPMENT.md for build steps and validation limits.
 
 ## Agreed experience
 - Native Android app, dark emerald/mint interface, optimised for portrait and landscape videos.
@@ -42,3 +42,14 @@ Status: initial Android implementation, version 0.1.0. See DEVELOPMENT.md for bu
 
 ## Scope
 Frame extraction, precise trimming, nearby sharpness suggestions, Immich save integration and updates. Full library browsing, effects, transitions and general video editing are outside the first release.
+
+## Version 0.2.0
+- Full rounded mint UI across home, portrait/landscape editor, settings and bottom sheets.
+- Independent playhead/start/end positions. Frame buttons adjust the selected trim boundary in Trim mode.
+- Sequential preview decoder, nearby-frame cache and platform fallback. Preview updates are no longer discarded while scrubbing or holding frame controls.
+- Sequential low-resolution sharpness analysis, progress and cancellation.
+- Close Video button and independent Android task when shared from another app.
+- Optional Immich connection explanations and explicit connection status/testing.
+- JPEG quality, PNG export and hold response settings.
+
+Physical-phone playback performance and live server authentication still require validation on the target device. Do not interpret successful compile/lint checks as full metadata-integration testing.

@@ -1,4 +1,121 @@
 package com.hasbreo.still;
-import android.app.*;import android.content.*;import android.net.Uri;import org.json.*;import java.net.*;import java.io.*;import java.security.*;import java.util.*;
-final class Updater {final MainActivity a;Updater(MainActivity a){this.a=a;}void check(boolean visible){a.work.execute(()->{try{HttpURLConnection c=(HttpURLConnection)new URL("https://hasbreo.com/still/update.json").openConnection();c.setConnectTimeout(15000);c.setReadTimeout(15000);JSONObject m;try(InputStream in=c.getInputStream()){m=new JSONObject(new String(IO.read(in),java.nio.charset.StandardCharsets.UTF_8));}finally{c.disconnect();}a.prefs.edit().putLong("checked",System.currentTimeMillis()).apply();JSONObject r=m.optJSONObject("latest");if(!m.optBoolean("available")||r==null||r.optInt("versionCode")<=1){if(visible)a.runOnUiThread(()->a.toast("Still is up to date · 0.1.0"));return;}a.runOnUiThread(()->new AlertDialog.Builder(a).setTitle("Still "+r.optString("versionName")+" available").setMessage(r.optString("notes","An update is available.")).setPositiveButton("Download",(d,w)->download(r)).setNegativeButton("Later",null).show());}catch(Exception e){if(visible)a.runOnUiThread(()->a.toast("Could not check for updates. Try again later."));}});}
- void download(JSONObject r){a.showProgress("Downloading update…");a.work.execute(()->{try{URL url=new URL(r.getString("url"));if(!"https".equals(url.getProtocol())||!"hasbreo.com".equals(url.getHost()))throw new IOException("Unexpected update address");HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(20000);c.setReadTimeout(60000);if(c.getResponseCode()!=200)throw new IOException("Download failed");File f=new File(a.getCacheDir(),"update.apk");MessageDigest sha=MessageDigest.getInstance("SHA-256");try(InputStream in=c.getInputStream();OutputStream out=new FileOutputStream(f)){byte[] b=new byte[65536];int n;while((n=in.read(b))!=-1){sha.update(b,0,n);out.write(b,0,n);}}finally{c.disconnect();}StringBuilder hex=new StringBuilder();for(byte b:sha.digest())hex.append(String.format("%02x",b));if(!hex.toString().equalsIgnoreCase(r.getString("sha256"))){f.delete();throw new IOException("Update checksum did not match");}android.content.pm.PackageInfo pkg=a.getPackageManager().getPackageArchiveInfo(f.getPath(),android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);android.content.pm.PackageInfo installed=a.getPackageManager().getPackageInfo(a.getPackageName(),android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);if(pkg==null||!pkg.packageName.equals(a.getPackageName())||pkg.getLongVersionCode()<=installed.getLongVersionCode()||!Arrays.equals(pkg.signingInfo.getApkContentsSigners(),installed.signingInfo.getApkContentsSigners())){f.delete();throw new IOException("Update signature or version is invalid");}a.runOnUiThread(()->{a.closeProgress();Intent i=new Intent(Intent.ACTION_VIEW);i.setDataAndType(Uri.parse("content://com.hasbreo.still.files/update.apk"),"application/vnd.android.package-archive");i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);a.startActivity(i);});}catch(Exception e){a.fail(e);}});}}
+
+import android.app.*;
+import android.content.*;
+import android.net.Uri;
+import java.io.*;
+import java.net.*;
+import java.security.*;
+import java.util.*;
+import org.json.*;
+
+final class Updater {
+  final MainActivity a;
+
+  Updater(MainActivity a) {
+    this.a = a;
+  }
+
+  void check(boolean visible) {
+    a.work.execute(
+        () -> {
+          try {
+            HttpURLConnection c =
+                (HttpURLConnection)
+                    new URL("https://hasbreo.com/still/update.json").openConnection();
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(15000);
+            JSONObject m;
+            try (InputStream in = c.getInputStream()) {
+              m = new JSONObject(new String(IO.read(in), java.nio.charset.StandardCharsets.UTF_8));
+            } finally {
+              c.disconnect();
+            }
+            a.prefs.edit().putLong("checked", System.currentTimeMillis()).apply();
+            JSONObject r = m.optJSONObject("latest");
+            if (!m.optBoolean("available") || r == null || r.optInt("versionCode") <= 2) {
+              if (visible) a.runOnUiThread(() -> a.toast("Still is up to date · 0.2.0"));
+              return;
+            }
+            a.runOnUiThread(
+                () ->
+                    Ui.confirm(
+                        a,
+                        "Still " + r.optString("versionName") + " available",
+                        r.optString("notes", "An update is available."),
+                        "Download update",
+                        () -> download(r),
+                        null));
+          } catch (Exception e) {
+            if (visible)
+              a.runOnUiThread(() -> a.toast("Could not check for updates. Try again later."));
+          }
+        });
+  }
+
+  void download(JSONObject r) {
+    a.showProgress("Downloading update…");
+    a.work.execute(
+        () -> {
+          try {
+            URL url = new URL(r.getString("url"));
+            if (!"https".equals(url.getProtocol()) || !"hasbreo.com".equals(url.getHost()))
+              throw new IOException("Unexpected update address");
+            HttpURLConnection c = (HttpURLConnection) url.openConnection();
+            c.setInstanceFollowRedirects(false);
+            c.setConnectTimeout(20000);
+            c.setReadTimeout(60000);
+            if (c.getResponseCode() != 200) throw new IOException("Download failed");
+            File f = new File(a.getCacheDir(), "update.apk");
+            MessageDigest sha = MessageDigest.getInstance("SHA-256");
+            try (InputStream in = c.getInputStream();
+                OutputStream out = new FileOutputStream(f)) {
+              byte[] b = new byte[65536];
+              int n;
+              while ((n = in.read(b)) != -1) {
+                sha.update(b, 0, n);
+                out.write(b, 0, n);
+              }
+            } finally {
+              c.disconnect();
+            }
+            StringBuilder hex = new StringBuilder();
+            for (byte b : sha.digest()) hex.append(String.format("%02x", b));
+            if (!hex.toString().equalsIgnoreCase(r.getString("sha256"))) {
+              f.delete();
+              throw new IOException("Update checksum did not match");
+            }
+            android.content.pm.PackageInfo pkg =
+                a.getPackageManager()
+                    .getPackageArchiveInfo(
+                        f.getPath(), android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);
+            android.content.pm.PackageInfo installed =
+                a.getPackageManager()
+                    .getPackageInfo(
+                        a.getPackageName(),
+                        android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);
+            if (pkg == null
+                || !pkg.packageName.equals(a.getPackageName())
+                || pkg.getLongVersionCode() <= installed.getLongVersionCode()
+                || !Arrays.equals(
+                    pkg.signingInfo.getApkContentsSigners(),
+                    installed.signingInfo.getApkContentsSigners())) {
+              f.delete();
+              throw new IOException("Update signature or version is invalid");
+            }
+            a.runOnUiThread(
+                () -> {
+                  a.closeProgress();
+                  Intent i = new Intent(Intent.ACTION_VIEW);
+                  i.setDataAndType(
+                      Uri.parse("content://com.hasbreo.still.files/update.apk"),
+                      "application/vnd.android.package-archive");
+                  i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                  a.startActivity(i);
+                });
+          } catch (Exception e) {
+            a.fail(e);
+          }
+        });
+  }
+}

@@ -8,3 +8,5 @@ keystore.properties
 signing/
 .env
 .env.*
+
+/app/src/androidTest/assets/test.mp4
